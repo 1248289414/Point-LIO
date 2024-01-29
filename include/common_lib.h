@@ -1,14 +1,15 @@
 #ifndef COMMON_LIB_H
 #define COMMON_LIB_H
 
+#include <rclcpp/rclcpp.hpp>
 #include <so3_math.h>
 #include <Eigen/Eigen>
 #include <pcl/point_types.h>
 #include <pcl/point_cloud.h>
-#include <sensor_msgs/Imu.h>
-#include <nav_msgs/Odometry.h>
-#include <tf/transform_broadcaster.h>
-#include <eigen_conversions/eigen_msg.h>
+#include <sensor_msgs/msg/imu.hpp>
+#include <nav_msgs/msg/odometry.hpp>
+#include <tf2_ros/transform_broadcaster.h>
+#include <deque>
 using namespace std;
 using namespace Eigen;
 
@@ -49,6 +50,7 @@ const M3D Eye3d(M3D::Identity());
 const M3F Eye3f(M3F::Identity());
 const V3D Zero3d(0, 0, 0);
 const V3F Zero3f(0, 0, 0);
+extern rclcpp::Node::SharedPtr node_ptr;
 
 struct MeasureGroup     // Lidar data and imu dates for the curent process
 {
@@ -61,7 +63,7 @@ struct MeasureGroup     // Lidar data and imu dates for the curent process
     double lidar_beg_time;
     double lidar_last_time;
     PointCloudXYZI::Ptr lidar;
-    deque<sensor_msgs::Imu::ConstPtr> imu;
+    deque<sensor_msgs::msg::Imu::ConstSharedPtr> imu;
 };
 
 template <typename T>
@@ -171,6 +173,19 @@ bool esti_plane(Matrix<T, 4, 1> &pca_result, const PointVector &point, const T &
         }
     }
     return true;
+}
+
+inline double get_time_sec(const builtin_interfaces::msg::Time &time)
+{
+    return rclcpp::Time(time).seconds();
+}
+
+inline rclcpp::Time get_ros_time(double timestamp)
+{
+    int32_t sec = std::floor(timestamp);
+    auto nanosec_d = (timestamp - std::floor(timestamp)) * 1e9;
+    uint32_t nanosec = nanosec_d;
+    return rclcpp::Time(sec, nanosec);
 }
 
 #endif

@@ -1,11 +1,12 @@
 // #ifndef PARAM_H
 // #define PARAM_H
 #pragma once
-#include <ros/ros.h>
+#include <rclcpp/rclcpp.hpp>
 #include <Eigen/Eigen>
 #include <Eigen/Core>
 #include <cstring>
 #include "preprocess.h"
+#include "common_lib.h"
 
 extern bool is_first_frame;
 extern double lidar_end_time, first_lidar_time, time_con;
@@ -37,4 +38,4 @@ extern bool   scan_pub_en, scan_body_pub_en;
 extern shared_ptr<Preprocess> p_pre;
 extern double time_lag_imu_to_lidar;
 
-void readParameters(ros::NodeHandle &n);
+void readParameters(rclcpp::Node::SharedPtr node_ptr);
