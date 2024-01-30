@@ -180,12 +180,9 @@ inline double get_time_sec(const builtin_interfaces::msg::Time &time)
     return rclcpp::Time(time).seconds();
 }
 
-inline rclcpp::Time get_ros_time(double timestamp)
+inline rclcpp::Time get_ros_time(double seconds)
 {
-    int32_t sec = std::floor(timestamp);
-    auto nanosec_d = (timestamp - std::floor(timestamp)) * 1e9;
-    uint32_t nanosec = nanosec_d;
-    return rclcpp::Time(sec, nanosec);
+    return rclcpp::Time(static_cast<int64_t>(seconds * 1e9));
 }
 
 #endif

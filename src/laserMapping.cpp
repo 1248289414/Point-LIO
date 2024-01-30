@@ -685,14 +685,9 @@ void publish_odometry(rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubO
 {
     odomAftMapped.header.frame_id = "camera_init";
     odomAftMapped.child_frame_id = "aft_mapped";
-    if (publish_odometry_without_downsample)
-    {
-        odomAftMapped.header.stamp = get_ros_time(time_current);
-    }
-    else
-    {
-        odomAftMapped.header.stamp = get_ros_time(lidar_end_time);
-    }
+    auto msg_stamp = publish_odometry_without_downsample ? time_current : lidar_end_time;
+    odomAftMapped.header.stamp = get_ros_time(msg_stamp);
+
     set_posestamp(odomAftMapped.pose.pose);
     
     pubOdomAftMapped->publish(odomAftMapped);
@@ -709,8 +704,7 @@ void publish_odometry(rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr pubO
     transform.setRotation( q );
 
     geometry_msgs::msg::TransformStamped trans;
-    trans = tf2::toMsg(tf2::Stamped<tf2::Transform>(transform, tf2::TimePointZero, "camera_init"));
-    trans.header.stamp = odomAftMapped.header.stamp;
+    trans = tf2::toMsg(tf2::Stamped<tf2::Transform>(transform, tf2::timeFromSec(msg_stamp), "camera_init"));
     trans.child_frame_id = "aft_mapped";
     br->sendTransform(trans);
 }
