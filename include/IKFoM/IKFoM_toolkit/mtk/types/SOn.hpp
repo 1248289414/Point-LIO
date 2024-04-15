@@ -358,3 +358,4 @@ struct UnalignedType<SO3<Scalar> >{
 }  // namespace MTK
 
 #endif /*SON_H_*/
+

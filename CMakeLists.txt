@@ -62,9 +62,9 @@ include_directories(
   ${PYTHON_INCLUDE_DIRS}
   include)
 
-ament_auto_add_executable(pointlio_mapping 
-  src/laserMapping.cpp include/ikd-Tree/ikd_Tree.cpp src/parameters.cpp src/preprocess.cpp src/Estimator.cpp
-)
+ament_auto_add_executable(pointlio_mapping src/laserMapping.cpp
+                src/li_initialization.cpp src/parameters.cpp src/preprocess.cpp src/Estimator.cpp 
+                src/IMU_Processing.cpp)
 
 if(BUILD_TESTING)
   find_package(ament_lint_auto REQUIRED)

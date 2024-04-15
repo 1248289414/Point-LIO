@@ -4,35 +4,51 @@ bool is_first_frame = true;
 double lidar_end_time = 0.0, first_lidar_time = 0.0, time_con = 0.0;
 double last_timestamp_lidar = -1.0, last_timestamp_imu = -1.0;
 int pcd_index = 0;
+IVoxType::Options ivox_options_;
+int ivox_nearby_type = 6;
 
+std::vector<double> extrinT(3, 0.0);
+std::vector<double> extrinR(9, 0.0);
+state_input state_in;
+state_output state_out;
 std::string lid_topic, imu_topic;
-bool prop_at_freq_of_imu, check_satu, con_frame, cut_frame;
-bool use_imu_as_input, space_down_sample, publish_odometry_without_downsample;
-int  init_map_size, con_frame_num;
-double match_s, satu_acc, satu_gyro, cut_frame_time_interval;
-float  plane_thr;
-double filter_size_surf_min, filter_size_map_min, fov_deg;
-double cube_len; 
-float  DET_RANGE;
-bool   imu_en, gravity_align, non_station_start;
-double imu_time_inte;
-double laser_point_cov, acc_norm;
+bool prop_at_freq_of_imu = true, check_satu = true, con_frame = false, cut_frame = false;
+bool use_imu_as_input = false, space_down_sample = true, publish_odometry_without_downsample = false;
+int  init_map_size = 10, con_frame_num = 1;
+double match_s = 81, satu_acc, satu_gyro, cut_frame_time_interval = 0.1;
+float  plane_thr = 0.1f;
+double filter_size_surf_min = 0.5, filter_size_map_min = 0.5, fov_deg = 180;
+// double cube_len = 2000; 
+float  DET_RANGE = 450;
+bool   imu_en = true;
+double imu_time_inte = 0.005;
+double laser_point_cov = 0.01, acc_norm;
 double vel_cov, acc_cov_input, gyr_cov_input;
 double gyr_cov_output, acc_cov_output, b_gyr_cov, b_acc_cov;
 double imu_meas_acc_cov, imu_meas_omg_cov; 
 int    lidar_type, pcd_save_interval;
 std::vector<double> gravity_init, gravity;
-std::vector<double> extrinT;
-std::vector<double> extrinR;
+
 bool   runtime_pos_log, pcd_save_en, path_en, extrinsic_est_en = true;
 bool   scan_pub_en, scan_body_pub_en;
 shared_ptr<Preprocess> p_pre;
-double time_lag_imu_to_lidar = 0.0;
+shared_ptr<ImuProcess> p_imu;
+double time_update_last = 0.0, time_current = 0.0, time_predict_last_const = 0.0, t_last = 0.0;
+double time_diff_lidar_to_imu = 0.0;
+
+double lidar_time_inte = 0.1, first_imu_time = 0.0;
+int cut_frame_num = 1, orig_odom_freq = 10;
+double online_refine_time = 20.0; //unit: s
+bool cut_frame_init = true;
+
+MeasureGroup Measures;
+
+ofstream fout_out, fout_imu_pbp, fout_rtk;
 
 void readParameters(rclcpp::Node::SharedPtr node_ptr)
 {
   node_ptr->declare_parameter<bool>("prop_at_freq_of_imu", true);
-  node_ptr->declare_parameter<bool>("use_imu_as_input", true);
+  node_ptr->declare_parameter<bool>("use_imu_as_input", false);
   node_ptr->declare_parameter<bool>("check_satu", true);
   node_ptr->declare_parameter<int>("init_map_size", 100);
   node_ptr->declare_parameter<bool>("space_down_sample", true);
@@ -47,14 +63,13 @@ void readParameters(rclcpp::Node::SharedPtr node_ptr)
   node_ptr->declare_parameter<int>("common.con_frame_num", 1);
   node_ptr->declare_parameter<bool>("common.cut_frame", false);
   node_ptr->declare_parameter<double>("common.cut_frame_time_interval", 0.1);
-  node_ptr->declare_parameter<double>("common.time_lag_imu_to_lidar", 0.0);
+  node_ptr->declare_parameter<double>("common.time_diff_lidar_to_imu", 0.0);
   node_ptr->declare_parameter<double>("filter_size_surf", 0.5);
   node_ptr->declare_parameter<double>("filter_size_map", 0.5);
-  node_ptr->declare_parameter<double>("cube_side_length", 200);
+  // nh.param<double>("cube_side_length",cube_len,2000);
   node_ptr->declare_parameter<float>("mapping.det_range", 300.f);
   node_ptr->declare_parameter<double>("mapping.fov_degree", 180);
   node_ptr->declare_parameter<bool>("mapping.imu_en", true);
-  node_ptr->declare_parameter<bool>("mapping.start_in_aggressive_motion", false);
   node_ptr->declare_parameter<bool>("mapping.extrinsic_est_en", true);
   node_ptr->declare_parameter<double>("mapping.imu_time_inte", 0.005);
   node_ptr->declare_parameter<double>("mapping.lidar_meas_cov", 0.1);
@@ -73,7 +88,6 @@ void readParameters(rclcpp::Node::SharedPtr node_ptr)
   node_ptr->declare_parameter<int>("preprocess.scan_rate", 10);
   node_ptr->declare_parameter<int>("preprocess.timestamp_unit", 1);
   node_ptr->declare_parameter<double>("mapping.match_s", 81);
-  node_ptr->declare_parameter<bool>("mapping.gravity_align", true);
   node_ptr->declare_parameter<std::vector<double>>("mapping.gravity", std::vector<double>());
   node_ptr->declare_parameter<std::vector<double>>("mapping.gravity_init", std::vector<double>());
   node_ptr->declare_parameter<std::vector<double>>("mapping.extrinsic_T", std::vector<double>());
@@ -86,7 +100,13 @@ void readParameters(rclcpp::Node::SharedPtr node_ptr)
   node_ptr->declare_parameter<bool>("pcd_save.pcd_save_en", false);
   node_ptr->declare_parameter<int>("pcd_save.interval", -1);
 
+  node_ptr->declare_parameter<double>("mapping.lidar_time_inte", 0.1);
+
+  node_ptr->declare_parameter<float>("mapping.ivox_grid_resolution", 0.2);
+  node_ptr->declare_parameter<int>("ivox_nearby_type", 18);
+
   p_pre.reset(new Preprocess());
+  p_imu.reset(new ImuProcess());
   node_ptr->get_parameter("prop_at_freq_of_imu", prop_at_freq_of_imu);
   node_ptr->get_parameter("use_imu_as_input", use_imu_as_input);
   node_ptr->get_parameter("check_satu", check_satu);
@@ -103,14 +123,12 @@ void readParameters(rclcpp::Node::SharedPtr node_ptr)
   node_ptr->get_parameter("common.con_frame_num", con_frame_num);
   node_ptr->get_parameter("common.cut_frame", cut_frame);
   node_ptr->get_parameter("common.cut_frame_time_interval", cut_frame_time_interval);
-  node_ptr->get_parameter("common.time_lag_imu_to_lidar", time_lag_imu_to_lidar);
+  node_ptr->get_parameter("common.time_diff_lidar_to_imu", time_diff_lidar_to_imu);
   node_ptr->get_parameter("filter_size_surf", filter_size_surf_min);
   node_ptr->get_parameter("filter_size_map", filter_size_map_min);
-  node_ptr->get_parameter("cube_side_length", cube_len);
   node_ptr->get_parameter("mapping.det_range", DET_RANGE);
   node_ptr->get_parameter("mapping.fov_degree", fov_deg);
   node_ptr->get_parameter("mapping.imu_en", imu_en);
-  node_ptr->get_parameter("mapping.start_in_aggressive_motion", non_station_start);
   node_ptr->get_parameter("mapping.extrinsic_est_en", extrinsic_est_en);
   node_ptr->get_parameter("mapping.imu_time_inte", imu_time_inte);
   node_ptr->get_parameter("mapping.lidar_meas_cov", laser_point_cov);
@@ -129,7 +147,6 @@ void readParameters(rclcpp::Node::SharedPtr node_ptr)
   node_ptr->get_parameter("preprocess.scan_rate", p_pre->SCAN_RATE);
   node_ptr->get_parameter("preprocess.timestamp_unit", p_pre->time_unit);
   node_ptr->get_parameter("mapping.match_s", match_s);
-  node_ptr->get_parameter("mapping.gravity_align", gravity_align);
   node_ptr->get_parameter("mapping.gravity", gravity);
   node_ptr->get_parameter("mapping.gravity_init", gravity_init);
   node_ptr->get_parameter("mapping.extrinsic_T", extrinT);
@@ -141,5 +158,69 @@ void readParameters(rclcpp::Node::SharedPtr node_ptr)
   node_ptr->get_parameter("runtime_pos_log_enable", runtime_pos_log);
   node_ptr->get_parameter("pcd_save.pcd_save_en", pcd_save_en);
   node_ptr->get_parameter("pcd_save.interval", pcd_save_interval);
+  node_ptr->get_parameter("mapping.lidar_time_inte", lidar_time_inte);
+  node_ptr->get_parameter("mapping.ivox_grid_resolution", ivox_options_.resolution_);
+  node_ptr->get_parameter("ivox_nearby_type", ivox_nearby_type);
+
+  if (ivox_nearby_type == 0) {
+    ivox_options_.nearby_type_ = IVoxType::NearbyType::CENTER;
+  } else if (ivox_nearby_type == 6) {
+    ivox_options_.nearby_type_ = IVoxType::NearbyType::NEARBY6;
+  } else if (ivox_nearby_type == 18) {
+    ivox_options_.nearby_type_ = IVoxType::NearbyType::NEARBY18;
+  } else if (ivox_nearby_type == 26) {
+    ivox_options_.nearby_type_ = IVoxType::NearbyType::NEARBY26;
+  } else {
+    // LOG(WARNING) << "unknown ivox_nearby_type, use NEARBY18";
+    ivox_options_.nearby_type_ = IVoxType::NearbyType::NEARBY18;
+  }
+    p_imu->gravity_ << VEC_FROM_ARRAY(gravity);
 }
 
+Eigen::Matrix<double, 3, 1> SO3ToEuler(const SO3 &rot) 
+{
+    double sy = sqrt(rot(0,0)*rot(0,0) + rot(1,0)*rot(1,0));
+    bool singular = sy < 1e-6;
+    double x, y, z;
+    if(!singular)
+    {
+        x = atan2(rot(2, 1), rot(2, 2));
+        y = atan2(-rot(2, 0), sy);   
+        z = atan2(rot(1, 0), rot(0, 0));  
+    }
+    else
+    {    
+        x = atan2(-rot(1, 2), rot(1, 1));    
+        y = atan2(-rot(2, 0), sy);    
+        z = 0;
+    }
+    Eigen::Matrix<double, 3, 1> ang(x, y, z);
+    return ang;
+}
+
+void open_file()
+{
+
+    fout_out.open(DEBUG_FILE_DIR("mat_out.txt"),ios::out);
+    fout_imu_pbp.open(DEBUG_FILE_DIR("imu_pbp.txt"),ios::out);
+    if (fout_out && fout_imu_pbp)
+        cout << "~~~~"<<ROOT_DIR<<" file opened" << endl;
+    else
+        cout << "~~~~"<<ROOT_DIR<<" doesn't exist" << endl;
+
+}
+
+void reset_cov(Eigen::Matrix<double, 24, 24> & P_init)
+{
+    P_init = MD(24, 24)::Identity() * 0.1;
+    P_init.block<3, 3>(21, 21) = MD(3,3)::Identity() * 0.0001;
+    P_init.block<6, 6>(15, 15) = MD(6,6)::Identity() * 0.001;
+}
+
+void reset_cov_output(Eigen::Matrix<double, 30, 30> & P_init_output)
+{
+    P_init_output = MD(30, 30)::Identity() * 0.01;
+    P_init_output.block<3, 3>(21, 21) = MD(3,3)::Identity() * 0.0001;
+    // P_init_output.block<6, 6>(6, 6) = MD(6,6)::Identity() * 0.0001;
+    P_init_output.block<6, 6>(24, 24) = MD(6,6)::Identity() * 0.001;
+}

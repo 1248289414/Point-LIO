@@ -31,9 +31,9 @@ def generate_launch_description():
                 {"init_map_size": 10},
                 {"point_filter_num": 1},
                 {"space_down_sample": True},
-                {"filter_size_surf": 0.3},
-                {"filter_size_map": 0.2},
-                {"cube_side_length": 2000.0},
+                {"filter_size_surf": 0.5},
+                {"filter_size_map": 0.4},
+                {"ivox_nearby_type": 6},
                 {"runtime_pos_log_enable": False},
                 os.path.join(package_path, 'config', 'mid360.yaml')
             ]
